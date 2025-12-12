@@ -1,0 +1,5 @@
+data:
+  masker:
+    enabled: true  # Включить/выключить маскировку DTO
+
+
