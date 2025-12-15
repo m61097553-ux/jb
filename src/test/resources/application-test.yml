@@ -1,0 +1,33 @@
+http:
+  masking:
+    request-enabled: true
+    response-enabled: true
+    default-mask-char: '*'
+    fields:
+      # Полная маскировка поля password
+      - field-name: password
+        mask-all: true
+        mask-char: '*'
+      
+      # Частичная маскировка поля cardNumber (с 4 по 10 индекс)
+      - field-name: cardNumber
+        mask-start-index: 4
+        mask-end-index: 10
+        mask-char: '#'
+      
+      # Конфигурация для inn (используется в code/codeValue паттерне)
+      - field-name: inn
+        mask-all: true
+        mask-char: '*'
+      
+      # Конфигурация для snils (используется в code/codeValue паттерне)
+      - field-name: snils
+        mask-all: true
+        mask-char: '#'
+      
+      # Частичная маскировка для inn с индексами
+      - field-name: inn-partial
+        mask-start-index: 0
+        mask-end-index: 8
+        mask-char: '#'
+

@@ -1,0 +1,32 @@
+http:
+  masking:
+    request-enabled: true
+    response-enabled: true
+    default-mask-char: '*'
+    fields:
+      # Пример 1: Полная маскировка поля password
+      - field-name: password
+        mask-all: true
+        mask-char: '*'
+      
+      # Пример 2: Маскировка части поля (с 5 по 10 символ)
+      - field-name: cardNumber
+        mask-start-index: 4
+        mask-end-index: 10
+        mask-char: '#'
+      
+      # Пример 3: Маскировка с начала до определенного индекса
+      - field-name: inn
+        mask-start-index: 0
+        mask-end-index: 8
+        mask-char: 'X'
+      
+      # Пример 4: Маскировка с определенного индекса до конца
+      - field-name: email
+        mask-start-index: 3
+        mask-all: false
+        mask-char: '*'
+      
+      # Пример 5: Маскировка с использованием символа по умолчанию
+      - field-name: secretKey
+        mask-all: true

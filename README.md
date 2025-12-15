@@ -1,14 +1,15 @@
-# Data Masker Spring Boot Starter
+# HTTP Masking Library
 
-Spring Boot Starter для маскировки чувствительных данных в полях DTO при логировании.
+Библиотека для маскировки чувствительных данных в теле HTTP запросов и ответов на основе конфигурации через properties.
 
 ## Возможности
 
-- ✅ Маскировка полей DTO через аннотацию `@Mask`
-- ✅ Автоматическая маскировка HTTP запросов и ответов через фильтр
-- ✅ Поддержка разных символов маски в разных позициях строки
-- ✅ Настраиваемая конфигурация через properties
-- ✅ Минимальное использование рефлексии
+- ✅ Рекурсивный поиск полей в JSON структуре
+- ✅ Настройка маскировки через application.yml/properties
+- ✅ Гибкая настройка символа маскировки, индексов и полной маскировки
+- ✅ Поддержка вложенных объектов и массивов
+- ✅ Маскировка как запросов, так и ответов
+- ✅ Простая интеграция в Spring Boot приложения
 
 ## Установка
 
@@ -17,115 +18,270 @@ Spring Boot Starter для маскировки чувствительных д�
 ```xml
 <dependency>
     <groupId>com.example</groupId>
-    <artifactId>data-masker-spring-boot-starter</artifactId>
+    <artifactId>http-masking-library</artifactId>
     <version>1.0.0</version>
 </dependency>
 ```
 
-## Конфигурация
+## Настройка
 
-В `application.yml`:
+### 1. Конфигурация через application.yml
 
 ```yaml
-data:
-  masker:
-    mask-char: '*'              # Символ для маскировки по умолчанию
-    enable-auto-masking: true   # Включить автоматическую маскировку
+http:
+  masking:
+    request-enabled: true
+    response-enabled: true
+    default-mask-char: '*'
+    fields:
+      # Полная маскировка поля
+      - field-name: password
+        mask-all: true
+        mask-char: '*'
+      
+      # Маскировка части поля (с 5 по 10 символ, индексы 4-9)
+      - field-name: cardNumber
+        mask-start-index: 4
+        mask-end-index: 10
+        mask-char: '#'
+      
+      # Маскировка первых 8 символов
+      - field-name: inn
+        mask-start-index: 0
+        mask-end-index: 8
+        mask-char: 'X'
 ```
 
-## Использование
+### 2. Создание конфигурационного класса
 
-### 1. Создайте DTO с аннотациями @Mask
-
-```java
-public class UserDTO {
-    
-    @Mask(value = Mask.MaskType.EMAIL)
-    private String email;
-    
-    // Использование одного символа через maskChar
-    @Mask(value = Mask.MaskType.PASSWORD, maskChar = '#')
-    private String password;
-    
-    // Использование нескольких символов через maskChars
-    @Mask(value = Mask.MaskType.CARD_NUMBER, maskChars = "*#X•")
-    private String cardNumber;
-    
-    // Без указания символов - используется символ по умолчанию из конфигурации
-    @Mask(value = Mask.MaskType.PHONE)
-    private String phone;
-}
-```
-
-### 2. Используйте DTOMaskingService для логирования
+Создайте класс конфигурации в вашем приложении:
 
 ```java
-@Service
-public class UserService {
+package com.example.config;
+
+import com.example.masker.config.MaskingProperties;
+import com.example.masker.filter.MaskingFilter;
+import com.example.masker.service.JsonMaskingService;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+@EnableConfigurationProperties(MaskingProperties.class)
+public class MaskingConfig {
     
-    @Autowired
-    private DTOMaskingService dtoMaskingService;
+    @Bean
+    public JsonMaskingService jsonMaskingService(
+            MaskingProperties properties, 
+            ObjectMapper objectMapper) {
+        return new JsonMaskingService(properties, objectMapper);
+    }
     
-    public void createUser(UserDTO userDTO) {
-        String maskedDTO = dtoMaskingService.maskDTOToString(userDTO);
-        log.info("Создание пользователя: {}", maskedDTO);
+    @Bean
+    public MaskingFilter maskingFilter(
+            MaskingProperties properties, 
+            JsonMaskingService jsonMaskingService) {
+        return new MaskingFilter(properties, jsonMaskingService);
+    }
+    
+    @Bean
+    public FilterRegistrationBean<MaskingFilter> maskingFilterRegistration(
+            MaskingFilter filter) {
+        FilterRegistrationBean<MaskingFilter> registration = new FilterRegistrationBean<>();
+        registration.setFilter(filter);
+        registration.addUrlPatterns("/*");
+        registration.setOrder(1);
+        registration.setName("maskingFilter");
+        return registration;
     }
 }
 ```
 
-### 3. Автоматическая маскировка HTTP запросов/ответов
+## Параметры конфигурации
 
-`DTOMaskingFilter` автоматически маскирует DTO в HTTP запросах и ответах:
+| Параметр | Тип | Описание | По умолчанию |
+|----------|-----|----------|--------------|
+| `http.masking.request-enabled` | boolean | Включить/выключить маскировку запросов | `true` |
+| `http.masking.response-enabled` | boolean | Включить/выключить маскировку ответов | `true` |
+| `http.masking.default-mask-char` | char | Символ маскировки по умолчанию | `*` |
+| `http.masking.fields[].field-name` | String | Имя поля для маскировки (обязательно) | - |
+| `http.masking.fields[].mask-char` | char | Символ маскировки для поля | Используется `default-mask-char` |
+| `http.masking.fields[].mask-start-index` | int | Начальный индекс маскировки (0-based, включительно) | `0` |
+| `http.masking.fields[].mask-end-index` | int | Конечный индекс маскировки (0-based, исключительно) | Длина строки |
+| `http.masking.fields[].mask-all` | boolean | Флаг полной маскировки поля | `false` |
 
-**Результат в логах:**
+## Примеры конфигурации
+
+### Пример 1: Полная маскировка нескольких полей
+
+```yaml
+http:
+  masking:
+    request-enabled: true
+    response-enabled: true
+    default-mask-char: '*'
+    fields:
+      - field-name: password
+        mask-all: true
+      - field-name: secretKey
+        mask-all: true
+        mask-char: '#'
+      - field-name: apiKey
+        mask-all: true
+        mask-char: 'X'
 ```
-HTTP Request: POST /api/users | Body: {"email":"jo*#@example.com","password":"se*#X•***23",...} | Execution time: 45ms
-HTTP Response: Status 200 | Body: {"id":"user123","email":"jo*#@example.com",...} | Execution time: 45ms
+
+### Пример 2: Маскировка только запросов
+
+```yaml
+http:
+  masking:
+    request-enabled: true
+    response-enabled: false
+    fields:
+      - field-name: password
+        mask-all: true
 ```
 
-## Доступные типы маскировки
+### Пример 3: Маскировка только ответов
 
-- `PASSWORD` - маскирует пароль
-- `CARD_NUMBER` - маскирует номер карты
-- `EMAIL` - маскирует email
-- `PHONE` - маскирует телефон
-- `STRING` - маскирует строку
-- `ALL` - полностью маскирует
-- `PRESERVE_FORMAT` - маскирует с сохранением формата
-- `NUM` - маскирует с 5 по 7 символ (индексы 4, 5, 6)
-- `EPK_ID` - маскирует полностью
-- `INN` - маскирует первые 8 символов
-- `NAME` - первая буква имени маскируется точкой
-- `SURNAME` - маскирует полностью
+```yaml
+http:
+  masking:
+    request-enabled: false
+    response-enabled: true
+    fields:
+      - field-name: token
+        mask-all: true
+```
 
-### Примеры специфичных типов маскировки
+### Пример 4: Маскировка части поля
 
-```java
-public class ExampleDTO {
-    
-    @Mask(value = Mask.MaskType.NUM)
-    private String num;  // "1234567890" -> "1234*#X7890" (5-й, 6-й, 7-й символы)
-    
-    @Mask(value = Mask.MaskType.EPK_ID)
-    private String epkId;  // "EPK123456" -> "*#X•▪*#X•" (полностью)
-    
-    @Mask(value = Mask.MaskType.INN)
-    private String inn;  // "1234567890123" -> "*#X•▪*#X•890123" (первые 8 символов)
-    
-    @Mask(value = Mask.MaskType.NAME)
-    private String name;  // "John" -> ".ohn" (первая буква точкой)
-    
-    @Mask(value = Mask.MaskType.SURNAME)
-    private String surname;  // "Doe" -> "*#X" (полностью)
+```yaml
+http:
+  masking:
+    fields:
+      # Маскировка символов с 5 по 10 (индексы 4-9)
+      - field-name: cardNumber
+        mask-start-index: 4
+        mask-end-index: 10
+        mask-char: '#'
+      
+      # Маскировка первых 8 символов
+      - field-name: inn
+        mask-start-index: 0
+        mask-end-index: 8
+        mask-char: 'X'
+      
+      # Маскировка с 3 символа до конца
+      - field-name: email
+        mask-start-index: 3
+        mask-char: '*'
+```
+
+### Пример 5: Рекурсивная маскировка вложенных объектов
+
+Библиотека автоматически ищет поля рекурсивно во всех вложенных объектах и массивах.
+
+**Входной JSON:**
+```json
+{
+  "user": {
+    "name": "John",
+    "password": "secret123",
+    "card": {
+      "number": "1234567890123456",
+      "cvv": "123"
+    }
+  },
+  "items": [
+    {
+      "id": 1,
+      "secret": "value1"
+    },
+    {
+      "id": 2,
+      "secret": "value2"
+    }
+  ]
 }
 ```
+
+**Конфигурация:**
+```yaml
+http:
+  masking:
+    fields:
+      - field-name: password
+        mask-all: true
+      - field-name: number
+        mask-start-index: 4
+        mask-end-index: 12
+        mask-char: '#'
+      - field-name: secret
+        mask-all: true
+```
+
+**Результат маскировки:**
+```json
+{
+  "user": {
+    "name": "John",
+    "password": "********",
+    "card": {
+      "number": "1234########3456",
+      "cvv": "123"
+    }
+  },
+  "items": [
+    {
+      "id": 1,
+      "secret": "******"
+    },
+    {
+      "id": 2,
+      "secret": "******"
+    }
+  ]
+}
+```
+
+## Использование программно
+
+Если вам нужно использовать сервис маскировки программно:
+
+```java
+@Autowired
+private JsonMaskingService jsonMaskingService;
+
+public void someMethod() {
+    String json = "{\"password\":\"secret123\"}";
+    String maskedJson = jsonMaskingService.maskJson(json);
+    logger.debug("Masked JSON: {}", maskedJson);
+}
+```
+
+## Отключение маскировки
+
+Чтобы отключить маскировку запросов или ответов:
+
+```yaml
+http:
+  masking:
+    request-enabled: false
+    response-enabled: false
+```
+
+Или удалите/закомментируйте конфигурационный класс.
 
 ## Требования
 
 - Java 17+
 - Spring Boot 3.1.0+
+- Maven 3.6+
 
 ## Лицензия
 
-MIT
-
+MIT License

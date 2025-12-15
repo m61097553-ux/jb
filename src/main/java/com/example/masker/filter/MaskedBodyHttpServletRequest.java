@@ -13,45 +13,31 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Кастомная обертка для HttpServletRequest, которая кэширует тело запроса
- * для возможности многократного чтения
+ * Обертка для HttpServletRequest, которая возвращает замаскированное тело запроса
  */
-public class CachedBodyHttpServletRequest extends HttpServletRequestWrapper {
+public class MaskedBodyHttpServletRequest extends HttpServletRequestWrapper {
     
-    private byte[] cachedBody;
+    private final byte[] maskedBody;
     
-    public CachedBodyHttpServletRequest(HttpServletRequest request) throws IOException {
+    public MaskedBodyHttpServletRequest(HttpServletRequest request, String maskedBody) {
         super(request);
-        this.cachedBody = StreamUtils.copyToByteArray(request.getInputStream());
+        this.maskedBody = maskedBody != null 
+                ? maskedBody.getBytes(StandardCharsets.UTF_8) 
+                : new byte[0];
     }
     
     @Override
     public ServletInputStream getInputStream() throws IOException {
-        return new CachedBodyServletInputStream(this.cachedBody);
+        return new CachedBodyServletInputStream(maskedBody);
     }
     
     @Override
     public BufferedReader getReader() throws IOException {
-        ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(this.cachedBody);
-        return new BufferedReader(new InputStreamReader(byteArrayInputStream, StandardCharsets.UTF_8));
+        return new BufferedReader(new InputStreamReader(getInputStream(), StandardCharsets.UTF_8));
     }
     
     /**
-     * Получает тело запроса как строку
-     */
-    public String getBodyAsString() {
-        return new String(this.cachedBody, StandardCharsets.UTF_8);
-    }
-    
-    /**
-     * Получает тело запроса как массив байтов
-     */
-    public byte[] getBodyAsBytes() {
-        return this.cachedBody;
-    }
-    
-    /**
-     * Внутренний класс для ServletInputStream
+     * Внутренний класс для чтения замаскированного тела
      */
     private static class CachedBodyServletInputStream extends ServletInputStream {
         private final ByteArrayInputStream buffer;
@@ -77,9 +63,8 @@ public class CachedBodyHttpServletRequest extends HttpServletRequestWrapper {
         
         @Override
         public void setReadListener(ReadListener listener) {
-            throw new UnsupportedOperationException("ReadListener is not supported");
+            throw new UnsupportedOperationException();
         }
     }
 }
-
 

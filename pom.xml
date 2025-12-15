@@ -6,12 +6,12 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.example</groupId>
-    <artifactId>data-masker-spring-boot-starter</artifactId>
+    <artifactId>http-masking-library</artifactId>
     <version>1.0.0</version>
     <packaging>jar</packaging>
 
-    <name>Data Masker Spring Boot Starter</name>
-    <description>Spring Boot Starter for masking sensitive data in DTO fields</description>
+    <name>HTTP Masking Library</name>
+    <description>Library for masking sensitive data in HTTP request and response bodies</description>
 
     <parent>
         <groupId>org.springframework.boot</groupId>
@@ -71,4 +71,3 @@
         </plugins>
     </build>
 </project>
-
