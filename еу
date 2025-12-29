@@ -1,66 +1,97 @@
-    public static Map<String, FieldMasking> load(
-            Context context,
-            char defaultMaskChar
-    ) {
-        if (context == null) return Map.of();
+package com.example.logging;
 
-        String fieldsCsv = context.getProperty("MASK_FIELDS");
-        if (fieldsCsv == null || fieldsCsv.isBlank()) {
-            return Map.of();
+import ch.qos.logback.classic.pattern.MessageConverter;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import org.slf4j.helpers.MessageFormatter;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import java.util.*;
+
+public class MaskedJsonMessageConverter extends MessageConverter {
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    // Пример: белый список шаблонов (как определять "это body")
+    private static final Set<String> ALLOWED_TEMPLATES = Set.of(
+            "Request body={}",
+            "Response body={}",
+            "Request received body={}",
+            "Response sent body={}"
+    );
+
+    // твои правила
+    private Map<String, FieldMasking> rules = Map.of();
+
+    @Override
+    public String convert(ILoggingEvent event) {
+
+        // 1) Определяем: это "body"-лог? (по шаблону, НЕ по formattedMessage)
+        String template = event.getMessage();
+        if (template == null || !ALLOWED_TEMPLATES.contains(template)) {
+            return event.getFormattedMessage(); // ничего не трогаем
         }
 
-        Map<String, FieldMasking> result = new LinkedHashMap<>();
+        Object[] args = event.getArgumentArray();
+        if (args == null || args.length == 0) {
+            return event.getFormattedMessage();
+        }
 
-        for (String rawField : fieldsCsv.split(",")) {
-            String field = rawField.trim();
-            if (field.isEmpty()) continue;
+        // 2) Ищем аргумент, который является JSON (String) или объектом (сериализуем в JSON)
+        int jsonArgIndex = findJsonArgIndex(args);
+        if (jsonArgIndex < 0) {
+            return event.getFormattedMessage();
+        }
 
-            FieldMasking fm = new FieldMasking();
-            fm.setFieldName(field);
+        // 3) Маскируем только этот аргумент
+        String maskedJson = maskArgToJson(args[jsonArgIndex]);
+        if (maskedJson == null) {
+            return event.getFormattedMessage();
+        }
 
-            // maskAll
-            fm.setMaskAll(boolProp(context, key(field, "maskAll"), false));
+        Object[] newArgs = Arrays.copyOf(args, args.length);
+        newArgs[jsonArgIndex] = maskedJson;
 
-            // maskKey
-            fm.setMaskKey(boolProp(context, key(field, "maskKey"), false));
+        // 4) Собираем итоговое сообщение по шаблону + аргументы
+        return MessageFormatter.arrayFormat(template, newArgs).getMessage();
+    }
 
-            // maskChar (fallback на default)
-            String maskCharProp = context.getProperty(key(field, "maskChar"));
-            if (maskCharProp != null && !maskCharProp.isBlank()) {
-                fm.setMaskChar(maskCharProp.charAt(0));
+    private int findJsonArgIndex(Object[] args) {
+        for (int i = 0; i < args.length; i++) {
+            Object a = args[i];
+            if (a == null) continue;
+
+            // если это String и похоже на JSON
+            if (a instanceof String s) {
+                String t = s.trim();
+                if ((t.startsWith("{") && t.endsWith("}")) || (t.startsWith("[") && t.endsWith("]"))) {
+                    return i;
+                }
             } else {
-                fm.setMaskChar(defaultMaskChar);
+                // любой объект можно сериализовать (часто это request/response DTO)
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private String maskArgToJson(Object arg) {
+        try {
+            JsonNode node;
+
+            if (arg instanceof String s) {
+                node = MAPPER.readTree(s);      // строка уже JSON
+            } else {
+                node = MAPPER.valueToTree(arg); // объект -> JsonNode
             }
 
-            // maskStartIndex
-            fm.setMaskStartIndex(intProp(context, key(field, "maskStartIndex")));
+            // TODO: применить маскирование по rules:
+            // applyMasking(node, rules);
 
-            // maskEndIndex
-            fm.setMaskEndIndex(intProp(context, key(field, "maskEndIndex")));
-
-            result.put(field, fm);
-        }
-
-        return result;
-    }
-
-    // ---------- helpers ----------
-
-    private static String key(String field, String prop) {
-        return "mask." + field + "." + prop;
-    }
-
-    private static boolean boolProp(Context ctx, String key, boolean def) {
-        String v = ctx.getProperty(key);
-        return (v == null) ? def : Boolean.parseBoolean(v.trim());
-    }
-
-    private static Integer intProp(Context ctx, String key) {
-        String v = ctx.getProperty(key);
-        if (v == null || v.isBlank()) return null;
-        try {
-            return Integer.parseInt(v.trim());
-        } catch (NumberFormatException e) {
+            return MAPPER.writeValueAsString(node);
+        } catch (Exception e) {
             return null;
         }
     }
+}
