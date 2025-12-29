@@ -1,0 +1,43 @@
+<configuration>
+
+  <!-- Глобальные переключатели -->
+  <property name="HTTP_MASK_REQUEST_ENABLED" value="true"/>
+  <property name="HTTP_MASK_RESPONSE_ENABLED" value="true"/>
+
+  <!-- Дефолтный символ маски -->
+  <property name="HTTP_MASK_DEFAULT_CHAR" value="*"/>
+
+  <!-- Список полей для маскирования -->
+  <property name="MASK_FIELDS" value="password,secretKey,apiKey"/>
+
+  <!-- password -->
+  <property name="mask.password.maskAll" value="true"/>
+  <!-- maskChar не задан -> будет default -->
+
+  <!-- secretKey -->
+  <property name="mask.secretKey.maskAll" value="true"/>
+  <property name="mask.secretKey.maskChar" value="#"/>
+
+  <!-- apiKey -->
+  <property name="mask.apiKey.maskAll" value="true"/>
+  <property name="mask.apiKey.maskChar" value="X"/>
+
+  <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder class="ch.qos.logback.core.encoder.LayoutWrappingEncoder">
+      <layout class="com.example.logging.JsonMaskingService">
+        <pattern>%d{HH:mm:ss.SSS} %-5level %logger - %msg%n</pattern>
+
+        <requestEnabled>${HTTP_MASK_REQUEST_ENABLED}</requestEnabled>
+        <responseEnabled>${HTTP_MASK_RESPONSE_ENABLED}</responseEnabled>
+        <defaultMaskChar>${HTTP_MASK_DEFAULT_CHAR}</defaultMaskChar>
+
+        <maskFields>${MASK_FIELDS}</maskFields>
+      </layout>
+    </encoder>
+  </appender>
+
+  <root level="INFO">
+    <appender-ref ref="CONSOLE"/>
+  </root>
+
+</configuration>
