@@ -1,118 +1,66 @@
-package com.example.logging;
+    public static Map<String, FieldMasking> load(
+            Context context,
+            char defaultMaskChar
+    ) {
+        if (context == null) return Map.of();
 
-import ch.qos.logback.classic.PatternLayout;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-
-import java.util.*;
-
-public class JsonMaskingService extends PatternLayout {
-
-    private boolean requestEnabled = true;
-    private boolean responseEnabled = true;
-    private char defaultMaskChar = '*';
-
-    // CSV: "password,secretKey,apiKey"
-    private String maskFields = "";
-
-    // то, что тебе нужно
-    private Map<String, FieldMasking> rules = Map.of();
-
-    // --- setters из logback-spring.xml ---
-    public void setRequestEnabled(boolean requestEnabled) { this.requestEnabled = requestEnabled; }
-    public void setResponseEnabled(boolean responseEnabled) { this.responseEnabled = responseEnabled; }
-
-    public void setDefaultMaskChar(String defaultMaskChar) {
-        if (defaultMaskChar != null && !defaultMaskChar.isEmpty()) {
-            this.defaultMaskChar = defaultMaskChar.charAt(0);
+        String fieldsCsv = context.getProperty("MASK_FIELDS");
+        if (fieldsCsv == null || fieldsCsv.isBlank()) {
+            return Map.of();
         }
-    }
 
-    public void setMaskFields(String maskFields) {
-        this.maskFields = (maskFields == null) ? "" : maskFields;
-    }
+        Map<String, FieldMasking> result = new LinkedHashMap<>();
 
-    @Override
-    public void start() {
-        super.start();
-        this.rules = Collections.unmodifiableMap(loadRulesFromContext());
-    }
+        for (String rawField : fieldsCsv.split(",")) {
+            String field = rawField.trim();
+            if (field.isEmpty()) continue;
 
-    @Override
-    public String doLayout(ILoggingEvent event) {
-        String line = super.doLayout(event);
-
-        // тут ты решаешь, что считать request/response и надо ли маскировать
-        // (оставлю заглушку; чаще определяют по loggerName или marker)
-        if (!requestEnabled && looksLikeRequest(event)) return line;
-        if (!responseEnabled && looksLikeResponse(event)) return line;
-
-        // дальше используешь rules для маскирования message/json
-        // например: return maskingEngine.maskLine(line, rules);
-        return line; // <- подставь твою маскировку
-    }
-
-    private boolean looksLikeRequest(ILoggingEvent event) {
-        // TODO: твоя логика (marker/loggerName/mdc)
-        return false;
-    }
-
-    private boolean looksLikeResponse(ILoggingEvent event) {
-        // TODO: твоя логика (marker/loggerName/mdc)
-        return false;
-    }
-
-    private Map<String, FieldMasking> loadRulesFromContext() {
-        Map<String, FieldMasking> map = new LinkedHashMap<>();
-
-        List<String> fields = parseCsv(maskFields);
-        for (String field : fields) {
             FieldMasking fm = new FieldMasking();
             fm.setFieldName(field);
 
-            // mask.<field>.maskAll
-            fm.setMaskAll(boolProp("mask." + field + ".maskAll", false));
+            // maskAll
+            fm.setMaskAll(boolProp(context, key(field, "maskAll"), false));
 
-            // mask.<field>.maskKey
-            fm.setMaskKey(boolProp("mask." + field + ".maskKey", false));
+            // maskKey
+            fm.setMaskKey(boolProp(context, key(field, "maskKey"), false));
 
-            // mask.<field>.maskChar  (если не задан — defaultMaskChar)
-            String mc = prop("mask." + field + ".maskChar");
-            if (mc != null && !mc.isEmpty()) fm.setMaskChar(mc.charAt(0));
-            else fm.setMaskChar(defaultMaskChar);
+            // maskChar (fallback на default)
+            String maskCharProp = context.getProperty(key(field, "maskChar"));
+            if (maskCharProp != null && !maskCharProp.isBlank()) {
+                fm.setMaskChar(maskCharProp.charAt(0));
+            } else {
+                fm.setMaskChar(defaultMaskChar);
+            }
 
-            // (опционально) индексы
-            fm.setMaskStartIndex(intProp("mask." + field + ".maskStartIndex"));
-            fm.setMaskEndIndex(intProp("mask." + field + ".maskEndIndex"));
+            // maskStartIndex
+            fm.setMaskStartIndex(intProp(context, key(field, "maskStartIndex")));
 
-            map.put(field, fm);
+            // maskEndIndex
+            fm.setMaskEndIndex(intProp(context, key(field, "maskEndIndex")));
+
+            result.put(field, fm);
         }
 
-        return map;
+        return result;
     }
 
-    private List<String> parseCsv(String csv) {
-        if (csv == null || csv.isBlank()) return List.of();
-        List<String> out = new ArrayList<>();
-        for (String p : csv.split(",")) {
-            String s = p.trim();
-            if (!s.isEmpty()) out.add(s);
-        }
-        return out;
+    // ---------- helpers ----------
+
+    private static String key(String field, String prop) {
+        return "mask." + field + "." + prop;
     }
 
-    private String prop(String name) {
-        return (getContext() == null) ? null : getContext().getProperty(name);
-    }
-
-    private boolean boolProp(String name, boolean def) {
-        String v = prop(name);
+    private static boolean boolProp(Context ctx, String key, boolean def) {
+        String v = ctx.getProperty(key);
         return (v == null) ? def : Boolean.parseBoolean(v.trim());
     }
 
-    private Integer intProp(String name) {
-        String v = prop(name);
+    private static Integer intProp(Context ctx, String key) {
+        String v = ctx.getProperty(key);
         if (v == null || v.isBlank()) return null;
-        try { return Integer.parseInt(v.trim()); }
-        catch (NumberFormatException e) { return null; }
+        try {
+            return Integer.parseInt(v.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
-}
