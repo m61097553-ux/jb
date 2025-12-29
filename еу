@@ -1,43 +1,118 @@
-<configuration>
+package com.example.logging;
 
-  <!-- Глобальные переключатели -->
-  <property name="HTTP_MASK_REQUEST_ENABLED" value="true"/>
-  <property name="HTTP_MASK_RESPONSE_ENABLED" value="true"/>
+import ch.qos.logback.classic.PatternLayout;
+import ch.qos.logback.classic.spi.ILoggingEvent;
 
-  <!-- Дефолтный символ маски -->
-  <property name="HTTP_MASK_DEFAULT_CHAR" value="*"/>
+import java.util.*;
 
-  <!-- Список полей для маскирования -->
-  <property name="MASK_FIELDS" value="password,secretKey,apiKey"/>
+public class JsonMaskingService extends PatternLayout {
 
-  <!-- password -->
-  <property name="mask.password.maskAll" value="true"/>
-  <!-- maskChar не задан -> будет default -->
+    private boolean requestEnabled = true;
+    private boolean responseEnabled = true;
+    private char defaultMaskChar = '*';
 
-  <!-- secretKey -->
-  <property name="mask.secretKey.maskAll" value="true"/>
-  <property name="mask.secretKey.maskChar" value="#"/>
+    // CSV: "password,secretKey,apiKey"
+    private String maskFields = "";
 
-  <!-- apiKey -->
-  <property name="mask.apiKey.maskAll" value="true"/>
-  <property name="mask.apiKey.maskChar" value="X"/>
+    // то, что тебе нужно
+    private Map<String, FieldMasking> rules = Map.of();
 
-  <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
-    <encoder class="ch.qos.logback.core.encoder.LayoutWrappingEncoder">
-      <layout class="com.example.logging.JsonMaskingService">
-        <pattern>%d{HH:mm:ss.SSS} %-5level %logger - %msg%n</pattern>
+    // --- setters из logback-spring.xml ---
+    public void setRequestEnabled(boolean requestEnabled) { this.requestEnabled = requestEnabled; }
+    public void setResponseEnabled(boolean responseEnabled) { this.responseEnabled = responseEnabled; }
 
-        <requestEnabled>${HTTP_MASK_REQUEST_ENABLED}</requestEnabled>
-        <responseEnabled>${HTTP_MASK_RESPONSE_ENABLED}</responseEnabled>
-        <defaultMaskChar>${HTTP_MASK_DEFAULT_CHAR}</defaultMaskChar>
+    public void setDefaultMaskChar(String defaultMaskChar) {
+        if (defaultMaskChar != null && !defaultMaskChar.isEmpty()) {
+            this.defaultMaskChar = defaultMaskChar.charAt(0);
+        }
+    }
 
-        <maskFields>${MASK_FIELDS}</maskFields>
-      </layout>
-    </encoder>
-  </appender>
+    public void setMaskFields(String maskFields) {
+        this.maskFields = (maskFields == null) ? "" : maskFields;
+    }
 
-  <root level="INFO">
-    <appender-ref ref="CONSOLE"/>
-  </root>
+    @Override
+    public void start() {
+        super.start();
+        this.rules = Collections.unmodifiableMap(loadRulesFromContext());
+    }
 
-</configuration>
+    @Override
+    public String doLayout(ILoggingEvent event) {
+        String line = super.doLayout(event);
+
+        // тут ты решаешь, что считать request/response и надо ли маскировать
+        // (оставлю заглушку; чаще определяют по loggerName или marker)
+        if (!requestEnabled && looksLikeRequest(event)) return line;
+        if (!responseEnabled && looksLikeResponse(event)) return line;
+
+        // дальше используешь rules для маскирования message/json
+        // например: return maskingEngine.maskLine(line, rules);
+        return line; // <- подставь твою маскировку
+    }
+
+    private boolean looksLikeRequest(ILoggingEvent event) {
+        // TODO: твоя логика (marker/loggerName/mdc)
+        return false;
+    }
+
+    private boolean looksLikeResponse(ILoggingEvent event) {
+        // TODO: твоя логика (marker/loggerName/mdc)
+        return false;
+    }
+
+    private Map<String, FieldMasking> loadRulesFromContext() {
+        Map<String, FieldMasking> map = new LinkedHashMap<>();
+
+        List<String> fields = parseCsv(maskFields);
+        for (String field : fields) {
+            FieldMasking fm = new FieldMasking();
+            fm.setFieldName(field);
+
+            // mask.<field>.maskAll
+            fm.setMaskAll(boolProp("mask." + field + ".maskAll", false));
+
+            // mask.<field>.maskKey
+            fm.setMaskKey(boolProp("mask." + field + ".maskKey", false));
+
+            // mask.<field>.maskChar  (если не задан — defaultMaskChar)
+            String mc = prop("mask." + field + ".maskChar");
+            if (mc != null && !mc.isEmpty()) fm.setMaskChar(mc.charAt(0));
+            else fm.setMaskChar(defaultMaskChar);
+
+            // (опционально) индексы
+            fm.setMaskStartIndex(intProp("mask." + field + ".maskStartIndex"));
+            fm.setMaskEndIndex(intProp("mask." + field + ".maskEndIndex"));
+
+            map.put(field, fm);
+        }
+
+        return map;
+    }
+
+    private List<String> parseCsv(String csv) {
+        if (csv == null || csv.isBlank()) return List.of();
+        List<String> out = new ArrayList<>();
+        for (String p : csv.split(",")) {
+            String s = p.trim();
+            if (!s.isEmpty()) out.add(s);
+        }
+        return out;
+    }
+
+    private String prop(String name) {
+        return (getContext() == null) ? null : getContext().getProperty(name);
+    }
+
+    private boolean boolProp(String name, boolean def) {
+        String v = prop(name);
+        return (v == null) ? def : Boolean.parseBoolean(v.trim());
+    }
+
+    private Integer intProp(String name) {
+        String v = prop(name);
+        if (v == null || v.isBlank()) return null;
+        try { return Integer.parseInt(v.trim()); }
+        catch (NumberFormatException e) { return null; }
+    }
+}
